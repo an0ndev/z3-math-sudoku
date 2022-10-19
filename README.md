@@ -1,6 +1,6 @@
 # Z3 Math Sudoku
 
-A heavily modified + stripped-down version of [@awkwardbunny](https://github.com/awkwardbunny)'s [Z3 sudoku solver](https://github.com/awkwardbunny/z3-sudoku).
+A heavily modified + stripped-down version of [@awkwardbunny](https://github.com/awkwardbunny)'s awesome [Z3 sudoku solver](https://github.com/awkwardbunny/z3-sudoku).
 
 I tailored the solver to solve the following "math sudoku":
 

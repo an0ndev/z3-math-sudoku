@@ -1,203 +1,27 @@
 #!/usr/bin/env python3
 
-import itertools
-import sys
 import z3
-from enum import Enum
-
-class SudokuType(Enum):
-    Classic = 1
-    Miracle = 2
-    Thermo = 3
-    Knight = 4
-    King = 5
-    Queen = 6
-    Sandwich = 7
-    Killer = 8
 
 class Sudoku:
 
-    _grid = [[ None for _ in range(9) ] for _ in range(9) ]
-    _solver = None
-    _valid_charset = set([str(x) for x in range(1,10)])
-    sudoku_type = SudokuType.Classic
+    _grid: list[list[z3.Int]] = [[ None for _ in range(9) ] for _ in range(9) ]
+    _solver: z3.Solver = None
 
     _nums = [[ '.' for _ in range(9) ] for _ in range(9) ]
-    _extra_constraints = []
-    
-    def __init__(self, sudoku_string=""):
+
+    def __init__(self):
         self._solver = z3.Solver()
-        sudoku_string = "".join(sudoku_string.split())
-        self._valid_charset.add('.')
 
         # Create variables
-        for r in range(9):
-            for c in range(9):
-                v = z3.Int('cell_%d_%d' % (r+1, c+1))
-                self._grid[r][c] = v
+        for row in range(9):
+            for col in range(9):
+                int_var = z3.Int(f"cell_{row+1}_{col+1}")
+                self._grid[row][col] = int_var
 
         # Add constraints for classic sudoku
         self.add_classic_constraints()
 
-        assert (len(sudoku_string) >= 81), "Invalid sudoku string provided! (length)"
-        self.load_numbers(sudoku_string[:81])
-
-        if(len(sudoku_string) > 81):
-            self.load_extra_constraints(sudoku_string[81:].upper())
-
-    def load_extra_constraints(self, constraints_string):
-        cs = constraints_string.split(';')
-        for c in cs:
-            if not c:
-                continue
-            elif c[0] == 'M':
-                self.sudoku_type = SudokuType.Miracle
-                self._extra_constraints.append(c[0])
-                self.add_miracle_constraints()
-            elif c[0] == 'T':
-                self.sudoku_type = SudokuType.Thermo
-                self._extra_constraints.append(c)
-                self.add_thermo_constraints(c[1:])
-            elif c[:2] == 'KN':
-                self.sudoku_type = SudokuType.Knight
-                self._extra_constraints.append(c[:2])
-                self.add_chess_constraints('knight')
-            elif c[0] == 'K':
-                self.sudoku_type = SudokuType.King
-                self._extra_constraints.append(c[0])
-                self.add_chess_constraints('king')
-            elif c[0] == 'Q':
-                self.sudoku_type = SudokuType.Queen
-                self._extra_constraints.append(c[0])
-                self.add_chess_constraints('queen')
-            elif c[0] == 'S':
-                self.sudoku_type = SudokuType.Sandwich
-                self._extra_constraints.append(c)
-                self.add_sandwich_constraints(c[1:])
-            elif c[0] == 'C':
-                self.sudoku_type = SudokuType.Killer
-                self._extra_constraints.append('killer')
-                self.add_cage_constraints(c[1:])
-            else:
-                assert(False), "Invalid (or unimplemented) sudoku type!"
-        #print(self._extra_constraints)
-
-    def load_numbers(self, sudoku_string):
-            for r in range(9):
-                for c in range(9):
-                    x = sudoku_string[r*9+c]
-                    assert (x in self._valid_charset), "Invalid sudoku string provided! (invalid character \'{}\')".format(x)
-                    if(x != '.'):
-                        self._nums[r][c] = int(x)
-                        self._solver.add(self._grid[r][c] == int(x))
-
-    def print(self):
-        for r in range(9):
-            print('   '
-                    .join(["{} {} {}".format(a,b,c) for a,b,c in 
-                        zip(self._nums[r][::3], self._nums[r][1::3], self._nums[r][2::3])]))
-            if(r in [2, 5]):
-                print()
-
-    def add_cage_constraints(self, cage):
-        cage_sum = int(cage[:2])
-        cage_vars = []
-        for r,c in zip(cage[2::2], cage[3::2]):
-            cage_vars.append(self._grid[int(r)-1][int(c)-1])
-
-        self._solver.add(z3.Distinct(cage_vars))
-        self._solver.add(z3.Sum(cage_vars) == cage_sum)
-
-    def add_sandwich_constraints(self, sandwich):
-        #assert(False), "Invalid (or unimplemented) sudoku type!"
-        num = int(sandwich[1])-1
-        sandwich_sum = int(sandwich[2:])
-        #offsets = []
-        #if(sandwich[0] == 'r'):
-        #    offsets.append([(i, 0) for i in range(-8, 0)])
-        #    offsets.append([(i, 0) for i in range(0, 9)])
-        #elif(sandwich[0] == 'c'): 
-        #    offsets.append([(0, i) for i in range(-8, 0)])
-        #    offsets.append([(0, i) for i in range(0, 9)])
-        #else:
-        #    assert(False), "Invalid sandwich type!"
-
-        #for v, t in self.get_offset_constraints(offsets, True):
-        #    self._solver.add(z3.If(v*t == 9), <??> == sandwich_sum, True)
-
-        arr = []
-        if(sandwich[0] == 'R'):
-            arr = self._grid[num]
-        elif(sandwich[0] == 'C'):
-            arr = [self._grid[r][num] for r in range(9)]
-        else:
-            assert(False), "Invalid sandwich type!"
-
-        for s in range(9):
-            for d in range(9):
-                if(s >= d):
-                    continue
-                sv = arr[s]
-                dv = arr[d]
-                between = [arr[i] for i in range(s+1,d)]
-                #if(len(between) == 0):
-                #    self._solver.add(z3.If(sv*dv == 9, sandwich_sum == 0, True))
-                #else:
-                #    self._solver.add(z3.If(sv*dv == 9, sandwich_sum == z3.Sum(between), True))
-                self._solver.add(z3.If(sv*dv == 9, sandwich_sum == z3.Sum(between), True))
-
-    def add_thermo_constraints(self, thermo):
-        prev = None
-        for r,c in zip(thermo[::2], thermo[1::2]):
-            current = self._grid[int(r)-1][int(c)-1]
-            if not prev == None:
-                self._solver.add(prev < current)
-            prev = current
-
-    def add_miracle_constraints(self):
-        self.add_chess_constraints('knight')
-        self.add_chess_constraints('king')
-
-        # Add neighboring sequence constraints
-        offsets = ((0,-1), (1,0), (0,1), (-1, 0))
-        for v, t in self.get_offset_constraints(offsets, False):
-            self._solver.add(t-v != 1)
-
-    def get_offset_constraints(self, offsets, symmetrical):
-        pairs = set()
-        for r in range(9):
-            for c in range(9):
-                for dy,dx in offsets:
-                    y = r+dy
-                    x = c+dx
-                    if not ((0 <= x <= 8) and (0 <= y <= 8)):
-                        continue
-                    pair = tuple(sorted([(r,c), (y,x)]))
-                    if symmetrical and (pair in pairs):
-                        continue
-                    pairs.add(pair)
-                    yield self._grid[r][c], self._grid[y][x]
-
-    def add_chess_constraints(self, chess_type):
-        if(chess_type.lower() == 'knight'):
-            offsets = ((1,-2), (2,-1), (2,1), (1,2), (-1,2), (-2,1), (-2,-1), (-1,2))
-            for v,t in self.get_offset_constraints(offsets, True):
-                self._solver.add(v != t)
-        elif(chess_type.lower() == 'king'):
-            offsets = list(itertools.product((-1,1), (-1,1)))
-            for v,t in self.get_offset_constraints(offsets, True):
-                self._solver.add(v != t)
-        elif(chess_type.lower() == 'queen'):
-            offsets = (
-                    (1,1), (2,2), (3,3), (4,4), (5,5), (6,6), (7,7), (8,8),
-                    (-1,1), (-2,2), (-3,3), (-4,4), (-5,5), (-6,6), (-7,7), (-8,8),
-                    (-1,-1), (-2,-2), (-3,-3), (-4,-4), (-5,-5), (-6,-6), (-7,-7), (-8,-8),
-                    (1,-1), (2,-2), (3,-3), (4,-4), (5,-5), (6,-6), (7,-7), (8,-8),
-                    ) # Is there a better way to do this
-            for v,t in self.get_offset_constraints(offsets, True):
-                self._solver.add(z3.Not(z3.And(t == 9, v == 9)))
-        else:
-            assert(False), "Invalid (or unimplemented) chess type!"
+        self.add_math_constraints()
 
     def add_classic_constraints(self):
         # Digits from 1-9
@@ -212,12 +36,81 @@ class Sudoku:
             self._solver.add(z3.Distinct(self._grid[i])) # Row
             self._solver.add(z3.Distinct([self._grid[r][i] for r in range(9)])) # Column
 
-        # Distinct digits in boxes
-        offset = list(itertools.product(range(0,3), range(0,3)))
-        for r in range(0, 9, 3):
-            for c in range(0, 9, 3):
-                box = [self._grid[r+dy][c+dx] for dy,dx in offset]
-                self._solver.add(z3.Distinct(box))
+    def add_math_constraints(self):
+
+        # utility function that converts a tuple of 1-indexed coordinates to a tuple of their respective solver variables
+        # the below functions accept the positions of the matching cells in this format.
+        def coords_to_els(*coord_pairs: tuple[int, int]) -> tuple[z3.ArithRef, ...]:
+            return tuple(self._grid[row - 1][col - 1] for row, col in coord_pairs)
+
+        # utility functions to specify various math sudoku conditions.
+        # the arguments are (val, *coords), where val is the associated value the result should match,
+        # and coords contains coordinate pairs of the cells the operation should be applied to.
+        # (each operation has its own function)
+
+        # for example, the constraint:
+        # --> "the values of the cells at row 1, column 1; row 2, column 1; row 2, column 2; and row 3, column 1, should multiply together to be 1120"
+        # would be specified like:
+        # --> times(1120, (1, 1), (2, 1), (2, 2), (3, 1))
+
+        def minus(val, *coords):
+            el1, el2 = coords_to_els(*coords)
+            self._solver.add(z3.Abs(el1 - el2) == val)
+
+        def divide(val, *coords):
+            el1, el2 = coords_to_els(*coords)
+            self._solver.add(el1 / el2 == val or el2 / el1 == val)
+
+        def times(val, *coords):
+            els = coords_to_els(*coords)
+            res = els[0]
+            for el in els[1:]:
+                res *= el
+            self._solver.add(res == val)
+
+        def plus(val, *coords):
+            els = coords_to_els(*coords)
+            res = els[0]
+            for el in els[1:]:
+                res += el
+            self._solver.add(res == val)
+
+        def equal(val, *coords):
+            el = coords_to_els(*coords)[0]
+            self._solver.add(el == val)
+
+        # defining the constraints from the specific puzzle I wanted to solve.
+        times(1120, (1, 1), (2, 1), (2, 2), (3, 1)) # 1
+        minus(8, (1, 2), (1, 3)) # 2
+        times(168, (1, 4), (1, 5), (1, 6)) # 3
+        times(48, (1, 7), (1, 8), (2, 8)) # 4
+        times(18, (1, 9), (2, 9), (3, 9)) # 5
+        plus(13, (2, 3), (3, 2), (3, 3), (3, 4)) # 6
+        plus(21, (2, 4), (2, 5), (2, 6)) # 7
+        plus(24, (2, 7), (3, 6), (3, 7), (3, 8)) # 8
+        times(108, (4, 1), (4, 2), (5, 2)) # 9
+        plus(9, (4, 3), (4, 4)) # 10
+        minus(4, (3, 5), (4, 5)) # 11
+        minus(5, (4, 6), (4, 7)) # 12
+        plus(22, (4, 8), (4, 9), (5, 8)) # 13
+        plus(9, (5, 1), (6, 1), (7, 1)) # 14
+        minus(5, (6, 2), (7, 2)) # 15
+        divide(3, (5, 3), (5, 4)) # 16
+        plus(15, (5, 5), (5, 6), (5, 7)) # 17
+        times(42, (6, 3), (6, 4)) # 18
+        times(32, (7, 3), (7, 4)) # 19
+        divide(3, (6, 5), (7, 5)) # 20
+        plus(17, (6, 6), (6, 7)) # 21
+        plus(3, (7, 6), (7, 7)) # 22
+        times(20, (6, 8), (7, 8)) # 23
+        times(120, (5, 9), (6, 9), (7, 9)) # 24
+        times(2160, (8, 1), (8, 2), (9, 1), (9, 2)) # 25
+        plus(17, (8, 3), (8, 4), (9, 3)) # 26
+        plus(3, (8, 5), (8, 6)) # 27
+        times(96, (9, 4), (9, 5), (9, 6)) # 28
+        times(35, (8, 7), (9, 7)) # 29
+        plus(8, (8, 8), (8, 9), (9, 8)) # 30
+        equal(7, (9, 9)) # 31
 
     def solve(self):
         if self._solver.check() == z3.sat:
@@ -229,25 +122,19 @@ class Sudoku:
         else:
             return False
 
-usage = "{} [sudoku]".format(sys.argv[0])
+    def print(self):
+        for r in range(9):
+            print('   '
+                    .join(["{} {} {}".format(a,b,c) for a,b,c in
+                        zip(self._nums[r][::3], self._nums[r][1::3], self._nums[r][2::3])]))
+            if r in [2, 5]:
+                print()
 
 if __name__ == "__main__":
-    if(len(sys.argv) < 2):
-        print("Error: Not enough arguments!")
-        print(usage)
-        sys.exit(1)
+    s = Sudoku()
 
-    with open(sys.argv[1], 'r') as in_file:
-        data = "".join(in_file.read().split()) # Remove all whitespaces
-        s = Sudoku(data)
-
-        print("Entered sudoku:")
-        print(s.sudoku_type)
+    if s.solve():
+        print("Solved sudoku:")
         s.print()
-        print()
-
-        if(s.solve()):
-            print("Solved sudoku:")
-            s.print()
-        else:
-            print("Too many constraints? -- cannot solve")
+    else:
+        print("Invalid constraints -- cannot solve")
